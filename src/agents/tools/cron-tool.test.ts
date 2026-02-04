@@ -233,4 +233,115 @@ describe("cron tool", () => {
     expect(call.method).toBe("cron.add");
     expect(call.params?.agentId).toBeNull();
   });
+
+  it("auto-populates delivery target for isolated agentTurn jobs", async () => {
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const tool = createCronTool({
+      agentSessionKey: "main",
+      agentChannel: "whatsapp",
+      agentTo: "+15551234567",
+    });
+    await tool.execute("call7", {
+      action: "add",
+      job: {
+        name: "send message",
+        schedule: { at: new Date(123).toISOString() },
+        sessionTarget: "isolated",
+        payload: { kind: "agentTurn", message: "Say hello" },
+        // No delivery specified - should auto-populate
+      },
+    });
+
+    const call = callGatewayMock.mock.calls[0]?.[0] as {
+      method?: string;
+      params?: { delivery?: { mode?: string; channel?: string; to?: string } };
+    };
+    expect(call.method).toBe("cron.add");
+    expect(call.params?.delivery).toEqual({
+      mode: "announce",
+      channel: "whatsapp",
+      to: "+15551234567",
+    });
+  });
+
+  it("does not auto-populate delivery when mode is none", async () => {
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const tool = createCronTool({
+      agentSessionKey: "main",
+      agentChannel: "whatsapp",
+      agentTo: "+15551234567",
+    });
+    await tool.execute("call8", {
+      action: "add",
+      job: {
+        name: "silent job",
+        schedule: { at: new Date(123).toISOString() },
+        sessionTarget: "isolated",
+        payload: { kind: "agentTurn", message: "Do something quietly" },
+        delivery: { mode: "none" },
+      },
+    });
+
+    const call = callGatewayMock.mock.calls[0]?.[0] as {
+      params?: { delivery?: { mode?: string; channel?: string; to?: string } };
+    };
+    // Should preserve mode: none and not add channel/to
+    expect(call.params?.delivery?.mode).toBe("none");
+    expect(call.params?.delivery?.channel).toBeUndefined();
+    expect(call.params?.delivery?.to).toBeUndefined();
+  });
+
+  it("does not auto-populate delivery when explicit channel/to are set", async () => {
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const tool = createCronTool({
+      agentSessionKey: "main",
+      agentChannel: "whatsapp",
+      agentTo: "+15551234567",
+    });
+    await tool.execute("call9", {
+      action: "add",
+      job: {
+        name: "explicit target",
+        schedule: { at: new Date(123).toISOString() },
+        sessionTarget: "isolated",
+        payload: { kind: "agentTurn", message: "Send to specific chat" },
+        delivery: { mode: "announce", channel: "telegram", to: "-1001234567890" },
+      },
+    });
+
+    const call = callGatewayMock.mock.calls[0]?.[0] as {
+      params?: { delivery?: { channel?: string; to?: string } };
+    };
+    // Should preserve explicit channel/to
+    expect(call.params?.delivery?.channel).toBe("telegram");
+    expect(call.params?.delivery?.to).toBe("-1001234567890");
+  });
+
+  it("does not auto-populate delivery for main session jobs", async () => {
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const tool = createCronTool({
+      agentSessionKey: "main",
+      agentChannel: "whatsapp",
+      agentTo: "+15551234567",
+    });
+    await tool.execute("call10", {
+      action: "add",
+      job: {
+        name: "main job",
+        schedule: { at: new Date(123).toISOString() },
+        sessionTarget: "main",
+        payload: { kind: "systemEvent", text: "Reminder" },
+      },
+    });
+
+    const call = callGatewayMock.mock.calls[0]?.[0] as {
+      params?: { delivery?: unknown };
+    };
+    // Main session jobs should not have delivery auto-populated
+    expect(call.params?.delivery).toBeUndefined();
+  });
 });

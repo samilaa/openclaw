@@ -42,6 +42,14 @@ const CronToolSchema = Type.Object({
 
 type CronToolOptions = {
   agentSessionKey?: string;
+  /** Current channel for auto-populating delivery target on isolated jobs. */
+  agentChannel?: string;
+  /** Current delivery target (e.g., phone number, chat ID) for isolated jobs. */
+  agentTo?: string;
+  /** Current account ID for isolated job delivery. */
+  agentAccountId?: string;
+  /** Current thread/topic ID for isolated job delivery. */
+  agentThreadId?: string | number;
 };
 
 type ChatMessage = {
@@ -264,6 +272,34 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
                 const baseText = stripExistingContext(payload.text);
                 payload.text = `${baseText}${REMINDER_CONTEXT_MARKER}${contextLines.join("\n")}`;
               }
+            }
+          }
+          // Auto-populate delivery target for isolated agentTurn jobs when not explicitly set.
+          // This ensures cron jobs created via "send a message in 3 minutes" capture the
+          // current conversation's delivery context.
+          if (
+            job &&
+            typeof job === "object" &&
+            (job as { sessionTarget?: string }).sessionTarget === "isolated" &&
+            (job as { payload?: { kind?: string } }).payload?.kind === "agentTurn"
+          ) {
+            type DeliveryObj = { mode?: string; channel?: string; to?: string };
+            const jobWithDelivery = job as { delivery?: DeliveryObj };
+            const delivery = jobWithDelivery.delivery;
+            const deliveryMode = delivery?.mode;
+            // Only auto-populate if delivery mode is announce (or default, which is announce)
+            // and the channel/to are not explicitly set
+            const shouldAutoPopulate =
+              deliveryMode !== "none" &&
+              (!delivery?.channel || delivery.channel === "last") &&
+              !delivery?.to;
+            if (shouldAutoPopulate && opts?.agentChannel && opts?.agentTo) {
+              jobWithDelivery.delivery = {
+                ...delivery,
+                mode: deliveryMode ?? "announce",
+                channel: opts.agentChannel,
+                to: opts.agentTo,
+              };
             }
           }
           return jsonResult(await callGatewayTool("cron.add", gatewayOpts, job));
