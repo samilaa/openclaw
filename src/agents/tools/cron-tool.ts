@@ -211,7 +211,15 @@ DELIVERY (isolated-only, top-level):
 CRITICAL CONSTRAINTS:
 - sessionTarget="main" REQUIRES payload.kind="systemEvent"
 - sessionTarget="isolated" REQUIRES payload.kind="agentTurn"
-Default: prefer isolated agentTurn jobs unless the user explicitly wants a main-session system event.
+
+WHEN TO USE EACH TYPE:
+- Use isolated+agentTurn for: scheduled messages, reminders, notifications, any task that produces output to send.
+  Example: "remind me in 5 mins" → isolated agentTurn with message="Send reminder: <content>"
+  Example: "send GM at 10am" → isolated agentTurn with message="Send a friendly GM greeting"
+- Use main+systemEvent ONLY for: internal agent state changes, background processing with no output needed.
+
+IMPORTANT: For ANY scheduled message/reminder, ALWAYS use sessionTarget="isolated" with payload.kind="agentTurn".
+The delivery will be automatically populated from the current conversation context.
 
 WAKE MODES (for wake action):
 - "next-heartbeat" (default): Wake on next heartbeat
