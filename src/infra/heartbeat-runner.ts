@@ -96,6 +96,14 @@ const EXEC_EVENT_PROMPT =
   "Please relay the command output to the user in a helpful way. If the command succeeded, share the relevant output. " +
   "If it failed, explain what went wrong.";
 
+// Prompt used when a cron job has fired with a systemEvent payload.
+// This overrides the standard heartbeat prompt to ensure the model acts on the cron task
+// instead of just "HEARTBEAT_OK".
+const CRON_EVENT_PROMPT =
+  "A scheduled task has fired. The task instruction is shown in the system messages above. " +
+  "Please perform the requested action. If it asks you to send a message, send that message directly. " +
+  "Keep your response concise and focused on the task.";
+
 function resolveActiveHoursTimezone(cfg: OpenClawConfig, raw?: string): string {
   const trimmed = raw?.trim();
   if (!trimmed || trimmed === "user") {
@@ -549,15 +557,21 @@ export async function runHeartbeatOnce(opts: {
   // If so, use a specialized prompt that instructs the model to relay the result
   // instead of the standard heartbeat prompt with "reply HEARTBEAT_OK".
   const isExecEvent = opts.reason === "exec-event";
-  const pendingEvents = isExecEvent ? peekSystemEvents(sessionKey) : [];
+  const isCronEvent = typeof opts.reason === "string" && opts.reason.startsWith("cron:");
+  const pendingEvents = isExecEvent || isCronEvent ? peekSystemEvents(sessionKey) : [];
   const hasExecCompletion = pendingEvents.some((evt) => evt.includes("Exec finished"));
+  const hasCronTask = isCronEvent && pendingEvents.length > 0;
 
-  const prompt = hasExecCompletion ? EXEC_EVENT_PROMPT : resolveHeartbeatPrompt(cfg, heartbeat);
+  const prompt = hasExecCompletion
+    ? EXEC_EVENT_PROMPT
+    : hasCronTask
+      ? CRON_EVENT_PROMPT
+      : resolveHeartbeatPrompt(cfg, heartbeat);
   const ctx = {
     Body: prompt,
     From: sender,
     To: sender,
-    Provider: hasExecCompletion ? "exec-event" : "heartbeat",
+    Provider: hasExecCompletion ? "exec-event" : hasCronTask ? "cron-event" : "heartbeat",
     SessionKey: sessionKey,
   };
   if (!visibility.showAlerts && !visibility.showOk && !visibility.useIndicator) {
